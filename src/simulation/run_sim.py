@@ -5,10 +5,12 @@ import time
 import numpy as np
 import sys
 import os
+from pathlib import Path
 
 # make sure this is a system variable in your bashrc
 NASA_ULI_ROOT_DIR = os.environ['NASA_ULI_ROOT_DIR']
-XPC3_DIR = NASA_ULI_ROOT_DIR + '/src/'
+# XPC3_DIR = NASA_ULI_ROOT_DIR + '/src/'
+XPC3_DIR = Path(NASA_ULI_ROOT_DIR).joinpath('src')
 sys.path.append(XPC3_DIR)
 
 import xpc3_helper
