@@ -6,6 +6,7 @@ import numpy as np
 import xpc3
 import time
 import pandas as pd
+import os
 
 def sendCTRL(client, elev, aileron, rudder, throttle):
     """Sets control surface information (on the main aircraft)
@@ -325,3 +326,69 @@ def loadState(client, folder, filename='test.csv'):
     ctrl[3]*=3
     client.sendCTRL(ctrl)
     time.sleep(0.05)
+
+def saveState_append(client, folder, filename='test.csv'):
+    """Save the current state of the simulator to a CSV file.
+        
+        Pulls all relevant DREFs and stores them in a CSV.
+        Can use loadState to set simulator back to a saved state.
+
+        Args:
+            client: XPlane Client
+            folder: path to save to
+            filename: name of file to save to
+    """
+
+    # Position/orientation/speeds/turn rates/etc datarefs
+    drefs = []
+    initRef = "sim/flightmodel/position/"
+    refs = ['theta','phi','psi','local_x','local_y','local_z','local_vx','local_vy','local_vz','local_ax','local_ay',
+    'local_az','Prad','Qrad','Rrad','q','groundspeed'
+    'indicated_airspeed','indicated_airspeed2','M','N','L','P','Q','R','P_dot',
+    'Q_dot','R_dot','Prad','Qrad','Rrad']
+    for ref in refs:
+        drefs += [initRef+ref]
+
+    # Engine related datarefs
+    initRef = "sim/flightmodel/engine/"
+    refs = ['ENGN_N2_','ENGN_N1_','ENGN_EGT','ENGN_ITT','ENGN_CHT','ENGN_EGT_c','ENGN_ITT_c',
+            'ENGN_CHT_C','ENGN_FF_','ENGN_EPR','ENGN_MPR','ENGN_oil_press_psi',
+            'ENGN_oil_press','ENGN_oil_press','ENGN_power','ENGN_prop','ENGN_TRQ',
+            'ENGN_thro','ENGN_thro_use',
+            'POINT_thrust','POINT_tacrad','ENGN_mixt','ENGN_prop','ENGN_propmode']
+    for ref in refs:
+        drefs += [initRef+ref]
+
+    # Force related dataref
+    initRef = "sim/flightmodel/forces/"
+    refs = ['fside_prop','fnrml_prop','faxil_prop','L_prop','M_prop','N_prop',
+            'L_total','M_total','N_total']
+    for ref in refs:
+        drefs += [initRef+ref]
+
+    # parking brake, time of day, and fuel level data ref
+    drefs += ["sim/flightmodel/controls/parkbrake"]
+    drefs += ["sim/time/zulu_time_sec"]
+    drefs += ["sim/flightmodel/weight/m_fuel1","sim/flightmodel/weight/m_fuel2"]
+
+    # Get the datarefs
+    values = client.getDREFs(drefs)
+    valuesFilt = []
+    drefsFilt = []
+    for i,val in enumerate(values):
+        if len(val)>0:
+            valuesFilt += [val[0]]
+            drefsFilt += [drefs[i]]
+
+    # Get position and controller settings
+    valuesFilt += client.getPOSI()
+    valuesFilt += client.getCTRL()
+    drefsFilt += ["lat","lon","alt","pitch","roll","heading","gear"]
+    drefsFilt += ["elev","aileron","rudder","throttle","gear","flaps","speedbrakes"]
+    values = np.array(valuesFilt).reshape((1,len(valuesFilt)))
+
+    # Save to CSV
+    outData = pd.DataFrame(values,index=[0],columns=drefsFilt)
+    csv_file = folder + "/"+filename
+    outData.to_csv(csv_file, mode='a', index=False,index_label=False, header=not os.path.exists(csv_file))
+    # df.to_csv(output_path, mode='a', header=not os.path.exists(output_path))
