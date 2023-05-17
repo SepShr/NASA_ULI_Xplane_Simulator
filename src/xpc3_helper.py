@@ -327,7 +327,7 @@ def loadState(client, folder, filename='test.csv'):
     client.sendCTRL(ctrl)
     time.sleep(0.05)
 
-def saveState_append(client, folder, filename='test.csv'):
+def save_state_append(client, folder, filename='test.csv'):
     """Save the current state of the simulator to a CSV file.
         
         Pulls all relevant DREFs and stores them in a CSV.
@@ -389,6 +389,6 @@ def saveState_append(client, folder, filename='test.csv'):
 
     # Save to CSV
     outData = pd.DataFrame(values,index=[0],columns=drefsFilt)
-    csv_file = folder + "/"+filename
+    csv_file = folder + "/"+ filename
     outData.to_csv(csv_file, mode='a', index=False,index_label=False, header=not os.path.exists(csv_file))
     # df.to_csv(output_path, mode='a', header=not os.path.exists(output_path))
