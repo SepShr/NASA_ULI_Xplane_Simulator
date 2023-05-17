@@ -21,8 +21,8 @@ from controllers import getProportionalControl
 from mss import mss
 from nnet import NNet
 from pyDOE import lhs
-# from tiny_taxinet import getStateTinyTaxiNet
 from TinyTaxiNet import TinyTaxiNet
+from tqdm import tqdm
 
 from xpc3 import XPlaneConnect
 from xpc3_helper import (getHomeState, getSpeed, reset, save_state_append,
@@ -47,13 +47,10 @@ CLOUD_COVER_MAP = {
     4: 'overcast'
 }
 
+RUNWAY_END_DTP_VALUE = 2982.0
+
 screenshot = mss()
 
-# # create a new output directory
-# timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-# OUT_DIR = Path(NASA_ULI_ROOT_DIR).joinpath('scratch', 'data', 'citl', str(timestamp))
-# os.makedirs(OUT_DIR, exist_ok=True)
-# sys.path.append(str(OUT_DIR))
 
 def generate_jobs(
         start_CTE_range: tuple,
@@ -90,8 +87,7 @@ def generate_jobs(
                 job_params[key] = int(job_params[key])
             else:
                 job_params[key] = round(job_params[key], 4)
-        # job_params['end_DTP_perc'] = end_DTP_perc
-        job_params['end_DTP'] = end_DTP_perc*2982
+        job_params['end_DTP'] = end_DTP_perc*RUNWAY_END_DTP_VALUE
         jobs.append(job_params)
 
     return jobs
@@ -131,93 +127,97 @@ def run_job(
         step_start_time = client.getDREF("sim/time/zulu_time_sec")[0]
         step_end_time = step_start_time
         _, dtp, _ = getHomeState(client)
-        print(f'start dtp is {dtp}')
         current_step = 0  # current step in simulation
 
-        # while getPercDownRunway(client) < job_params['end_DTP_perc']:
-        while dtp < job_params['end_DTP']:
-            # Set proper throttle value based on speed
-            print(f'dtp={dtp}')
-            speed = getSpeed(client)
-            throttle = 0.1
-            if speed > 5:
-                throttle = 0.0
-            elif speed < 3:
-                throttle = 0.2
-            
-            # Environmental conditions
-            local_time = client.getDREF("sim/time/local_time_sec")[0]
-            if local_time < 5 * 3600 or local_time > 17 * 3600:
-                period_of_day = 2
-                time_period = 'night'
-            elif local_time > 12 * 3600 and local_time < 17 * 3600:
-                period_of_day = 1
-                time_period = 'afternoon'
-            else:
-                period_of_day = 0
-                time_period = 'morning'
+        with tqdm(total=job_params['end_DTP']) as pbar:
+            while dtp < job_params['end_DTP']:
+                # Set proper throttle value based on speed
+                speed = getSpeed(client)
+                throttle = 0.1
+                if speed > 5:
+                    throttle = 0.0
+                elif speed < 3:
+                    throttle = 0.2
+                
+                # Environmental conditions
+                local_time = client.getDREF("sim/time/local_time_sec")[0]
+                if local_time < 5 * 3600 or local_time > 17 * 3600:
+                    period_of_day = 2
+                    time_period = 'night'
+                elif local_time > 12 * 3600 and local_time < 17 * 3600:
+                    period_of_day = 1
+                    time_period = 'afternoon'
+                else:
+                    period_of_day = 0
+                    time_period = 'morning'
 
-            # Save screenshot
-            img_name, img = save_screenshot(
-                time_period=time_period,
-                cloud_cover = job_params['cloud_cover'],
-                episode_num=job_params['job_id'],
-                step_num=current_step,
-                out_dir=out_dir
-            )
-            
-            # Get state, i.e., CTE and HE
-            cte_est, he_est, ttn_input_img = tinytaxinet.getStateTinyTaxiNet(client)
+                # Save screenshot
+                img_name, img = save_screenshot(
+                    time_period=time_period,
+                    cloud_cover = job_params['cloud_cover'],
+                    episode_num=job_params['job_id'],
+                    step_num=current_step,
+                    out_dir=out_dir
+                )
+                
+                # Get state, i.e., CTE and HE
+                cte_est, he_est, ttn_input_img = tinytaxinet.getStateTinyTaxiNet(client)
 
-            # Get control
-            rudder = getProportionalControl(client, cte_est, he_est)
+                # Get control
+                rudder = getProportionalControl(client, cte_est, he_est)
 
-            # Send control
-            client.sendCTRL([0, rudder, rudder, throttle])
+                # Send control
+                client.sendCTRL([0, rudder, rudder, throttle])
 
-            # Get additional data to record
-            cte_act, dtp, he_act = getHomeState(client)
-            absolute_time = client.getDREF("sim/time/zulu_time_sec")[0]
-            
-            # Record data
-            record_data(
-                img_name=img_name.split('/')[-1].split('.')[0],
-                img=img,
-                ttn_input_img=ttn_input_img,
-                absolute_time=absolute_time,
-                relative_time= absolute_time - episode_start_time,
-                cte_act=cte_act,
-                cte_act_norm=cte_act / 10.0,
-                cte_est=cte_est,
-                he_act=he_act,
-                he_act_norm=he_act / 30.0,
-                he_est=he_est,
-                dtp=dtp,
-                dtp_norm=dtp / 2982.0,
-                period_of_day=period_of_day,
-                cloud_cover=job_params['cloud_cover'],
-                episode_num=job_params['job_id'],
-                step_num=current_step,
-                dataframe=data_df,
-                csv_file=csv_file
-            )
-            save_state_append(client, str(out_dir), 'extra_params.csv')
+                # Get additional data to record
+                cte_act, dtp, he_act = getHomeState(client)
+                absolute_time = client.getDREF("sim/time/zulu_time_sec")[0]
+                
+                # Record data
+                record_data(
+                    img_name=img_name.split('/')[-1].split('.')[0],
+                    img=img,
+                    ttn_input_img=ttn_input_img,
+                    absolute_time=absolute_time,
+                    relative_time= absolute_time - episode_start_time,
+                    cte_act=cte_act,
+                    cte_act_norm=cte_act / 10.0,
+                    cte_est=cte_est,
+                    he_act=he_act,
+                    he_act_norm=he_act / 30.0,
+                    he_est=he_est,
+                    dtp=dtp,
+                    dtp_norm=dtp / 2982.0,
+                    period_of_day=period_of_day,
+                    cloud_cover=job_params['cloud_cover'],
+                    episode_num=job_params['job_id'],
+                    step_num=current_step,
+                    dataframe=data_df,
+                    csv_file=csv_file
+                )
+                save_state_append(client, str(out_dir), 'extra_params.csv')
 
-            # Wait for next timestep
-            while step_end_time - step_start_time < 1:
-                step_end_time = client.getDREF("sim/time/zulu_time_sec")[0]
+                # Wait for next timestep
+                while step_end_time - step_start_time < 1:
+                    step_end_time = client.getDREF("sim/time/zulu_time_sec")[0]
+                    time.sleep(0.001)
+                
+                # Set things for next round
+                step_start_time = client.getDREF("sim/time/zulu_time_sec")[0]
+                step_end_time = step_start_time
+                _, dtp, _ = getHomeState(client)
+
+                # Update progress bar
+                # pbar.n = dtp
+                # pbar.refresh()
+                pbar.update(dtp - pbar.n)
+                
                 time.sleep(0.001)
-            
-            # Set things for next round
-            step_start_time = client.getDREF("sim/time/zulu_time_sec")[0]
-            step_end_time = step_start_time
-            _, dtp, _ = getHomeState(client)
-            time.sleep(0.001)
 
-            if cte_act > 15 or he_act > 90:
-                break
-            else:
-                current_step += 1
+                if cte_act > 15 or he_act > 90:
+                    break
+                else:
+                    current_step += 1
 
         client.pauseSim(True)
 
@@ -290,12 +290,9 @@ def record_data(
 
     if dataframe is None:
         dataframe = pd.DataFrame(data, index=[0])
-        print(f'data recorded for episode {episode_num}, at step {step_num}')
     else:
         dataframe = dataframe.reset_index(drop=True)  # Reset index of the existing dataframe
         dataframe = pd.concat([dataframe, pd.DataFrame(data, index=[0])], ignore_index=True)
-        # dataframe = dataframe.append(data, ignore_index=True)
-        print(f'data recorded for episode {episode_num}, at step {step_num}')
 
     if csv_file is not None:
         dataframe.to_csv(csv_file, mode='a', index=False, index_label=False, header=not os.path.exists(csv_file))
@@ -312,7 +309,8 @@ def save_screenshot(
         episode_num: int,
         step_num: int,
         out_dir: str,
-        monitor: dict = MONITOR
+        monitor: dict = MONITOR,
+        save_file: bool = True
 ):
     """
     Save screenshot of current X-Plane window.
@@ -324,7 +322,8 @@ def save_screenshot(
 
     img_name = f'{out_dir}/MWH_Runway04_{time_period}_{CLOUD_COVER_MAP[cloud_cover]}_{str(episode_num)}_{str(step_num)}.png'
     
-    cv2.imwrite(img_name, img)
+    if save_file:
+        cv2.imwrite(img_name, img)
 
     img_array = np.array(img)
     img_array = img_array.flatten()
@@ -336,7 +335,6 @@ def main():
     # create a new output directory
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     OUT_DIR = Path(NASA_ULI_ROOT_DIR).joinpath('scratch', 'data', 'citl', str(timestamp))
-    print(OUT_DIR)
     os.makedirs(OUT_DIR, exist_ok=True)
     sys.path.append(str(OUT_DIR))
 
@@ -349,13 +347,16 @@ def main():
         max_jobs=3
     )
 
-    print(jobs)
+    print(f'generated jobs: {jobs}')
 
     data_df = pd.DataFrame()
     csv_file = setup_csv_file(OUT_DIR, 'data.csv')
 
     for job in jobs:
+        job_id = job['job_id']
+        print(f'running job {job_id} of {len(jobs)}')
         run_job(job, OUT_DIR, data_df, csv_file)
+        print(f'finished job {job_id} of {len(jobs)}')
 
 if __name__ == "__main__":
     main()
