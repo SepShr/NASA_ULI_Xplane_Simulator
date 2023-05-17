@@ -20,8 +20,11 @@ import settings
 screenShot = mss.mss()
 
 def main():
+    out_dir = NASA_ULI_ROOT_DIR + settings.OUT_DIR
+    # sys.path.append(out_dir)
     with xpc3.XPlaneConnect() as client:
-        record(client, settings.OUT_DIR, endPerc = settings.END_PERC - 1.0, 
+        # record(client, settings.OUT_DIR, endPerc = settings.END_PERC - 1.0, 
+        record(client, out_dir, endPerc = settings.END_PERC - 1.0, 
                     freq=settings.FREQUENCY, numEpisodes=len(settings.CASE_INDS))
 
 def record(client, outDir, startPerc = 1.5, endPerc = 10, freq = 10, numEpisodes = 1):
@@ -47,7 +50,8 @@ def record(client, outDir, startPerc = 1.5, endPerc = 10, freq = 10, numEpisodes
     with open(csvFile, 'w') as fd:
         fd.write('image_filename,absolute_time_GMT_seconds,relative_time_seconds,distance_to_centerline_meters,')
         fd.write('distance_to_centerline_NORMALIZED,downtrack_position_meters,downtrack_position_NORMALIZED,')
-        fd.write('heading_error_degrees,heading_error_NORMALIZED,period_of_day,cloud_type\n')
+        # fd.write('heading_error_degrees,heading_error_NORMALIZED,period_of_day,cloud_type,\n')
+        fd.write('heading_error_degrees,heading_error_NORMALIZED,period_of_day,cloud_type,episode_num,current_step,\n')
 
     for i in range(numEpisodes):
         first = True
@@ -116,10 +120,14 @@ def addCurrData(client, outDir, csvFile, startTime, currStep, episodeNum):
     # For now, just save the image to an output directory
     cv2.imwrite('%s%s' % (outDir, img_name), img)
 
+    xpc3_helper.save_state_append(client, outDir, 'extra_params.csv')
+
     # Append everything to the csv file
     with open(csvFile, 'a') as fd:
-	    fd.write("%s,%f,%f,%f,%f,%f,%f,%f,%f,%d,%d\n" % (img_name, absolute_time, time_step,
-                cte, cte / 10.0, dtp, dtp / 2982.0, he, he / 30.0, period_of_day, cloud_cover))
+	    # fd.write("%s,%f,%f,%f,%f,%f,%f,%f,%f,%d,%d\n" % (img_name, absolute_time, time_step,
+        #         cte, cte / 10.0, dtp, dtp / 2982.0, he, he / 30.0, period_of_day, cloud_cover))
+        fd.write("%s,%f,%f,%f,%f,%f,%f,%f,%f,%d,%d,%d,%d\n" % (img_name, absolute_time, time_step,
+                cte, cte / 10.0, dtp, dtp / 2982.0, he, he / 30.0, period_of_day, cloud_cover, episodeNum, currStep))
 
 
 if __name__ == "__main__":
