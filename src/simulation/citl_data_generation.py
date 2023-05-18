@@ -1,10 +1,11 @@
 """
 Generate and record data using CITL simulations.
 """
-from datetime import datetime
 import os
+import pickle
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 
 # make sure this is a system variable in your bashrc
@@ -22,6 +23,7 @@ from mss import mss
 from nnet import NNet
 from pyDOE import lhs
 from TinyTaxiNet import TinyTaxiNet
+from TinyTaxiNetTorch import TinyTaxiNetTorch
 from tqdm import tqdm
 
 from xpc3 import XPlaneConnect
@@ -49,7 +51,11 @@ CLOUD_COVER_MAP = {
 
 RUNWAY_END_DTP_VALUE = 2982.0
 
-screenshot = mss()
+START_DTP = 0.0
+CTE_LIMIT = 15
+HE_LIMIT = 90
+
+MSS = mss()
 
 
 def generate_jobs(
@@ -95,6 +101,8 @@ def generate_jobs(
 
 def run_job(
         job_params: dict,
+        model,
+        model_type: str = 'nnet',
         out_dir: str = None,
         data_df : pd.DataFrame = None,
         csv_file: Path = None,
@@ -104,7 +112,7 @@ def run_job(
     Run a single job using CITL simulations.
     """
     # Initialize TinyTaxiNet
-    tinytaxinet = TinyTaxiNet(NNet(NNET_DIR))
+    dnn_model = model
     dataframe = data_df
 
     with XPlaneConnect() as client:
@@ -117,7 +125,8 @@ def run_job(
         reset(
             client=client,
             cteInit=job_params['start_CTE'],
-            heInit=job_params['start_HE']
+            heInit=job_params['start_HE'],
+            dtpInit = START_DTP
             )
         sendBrake(client, 0)
 
@@ -162,7 +171,7 @@ def run_job(
                 )
                 
                 # Get state, i.e., CTE and HE
-                cte_est, he_est, ttn_input_img = tinytaxinet.getStateTinyTaxiNet(client)
+                cte_est, he_est, ttn_input_img = model.getStateTinyTaxiNet(client)
 
                 # Get control
                 rudder = getProportionalControl(client, cte_est, he_est)
@@ -193,6 +202,7 @@ def run_job(
                     cloud_cover=job_params['cloud_cover'],
                     episode_num=job_params['job_id'],
                     step_num=current_step,
+                    model_type=model_type,
                     dataframe=dataframe,
                     csv_file=csv_file
                 )
@@ -215,7 +225,8 @@ def run_job(
                 
                 time.sleep(0.001)
 
-                if cte_act > 15 or he_act > 90:
+                # stop simlation if CTE or HE are too large
+                if cte_act > CTE_LIMIT or he_act > HE_LIMIT:
                     break
                 else:
                     current_step += 1
@@ -264,6 +275,7 @@ def record_data(
         cloud_cover: int,
         episode_num: int,
         step_num: int,
+        model_type: str,
         dataframe: pd.DataFrame = None,
         csv_file: Path = None,
         save_file: bool = True
@@ -288,7 +300,8 @@ def record_data(
         'period_of_day': [period_of_day],
         'cloud_type': [cloud_cover],
         'episode_num': [episode_num],
-        'step_num': [step_num]
+        'step_num': [step_num],
+        'model_type': [model_type]
     }
 
     if dataframe is None:
@@ -321,7 +334,7 @@ def save_screenshot(
     Save screenshot of current X-Plane window.
     """
     # Image information
-    img = cv2.cvtColor(np.array(screenshot.grab(monitor['screenshot_params'])),
+    img = cv2.cvtColor(np.array(MSS.grab(monitor['screenshot_params'])),
                                         cv2.COLOR_BGRA2BGR)[230:, :, :]
     img = cv2.resize(img, (monitor['width'], monitor['height']))
 
@@ -335,34 +348,68 @@ def save_screenshot(
 
     return img_name, img_array
 
+def initialize_ttn_model(model_type : str = 'nnet'):
+    """
+    Initialize TinyTaxiNet model.
+    """
+    if model_type == 'nnet':
+        # NNet TinyTaxiNet
+        tinytaxinet = TinyTaxiNet(NNet(NNET_DIR))
+    elif model_type == 'pytorch':
+        # PyTorch TinyTaxiNet
+        model_path = Path().cwd().joinpath('models', 'tiny_taxinet_pytorch', 'afternoon_morning_overcast_night', 'best_model.pt')
+        tinytaxinet = TinyTaxiNetTorch(model_path)
+    else:
+        raise ValueError('tinytaxinet_model_type must be either "nnet" or "pytorch"')
+    
+    return tinytaxinet
+
+
 def main():
 
-    # create a new output directory
+    # Create a new output directory
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     OUT_DIR = Path(NASA_ULI_ROOT_DIR).joinpath('scratch', 'data', 'citl', str(timestamp))
     os.makedirs(OUT_DIR, exist_ok=True)
     sys.path.append(str(OUT_DIR))
 
     jobs = generate_jobs(
-        start_CTE_range=(-8, 8),
+        # start_CTE_range=(-8, 8),
+        start_CTE_range=(-3, 3),
         start_HE_range=(-10, 10),
         time_of_day_range=(0.0, 24.0),
         cloud_cover_range=(0, 4),
-        end_DTP_perc=0.05,
+        end_DTP_perc=0.5,
         max_jobs=2
     )
 
     print(f'generated jobs: {jobs}')
+    # Pickle jobs
+    with open(OUT_DIR.joinpath('jobs.pkl'), 'wb') as f:
+        pickle.dump(jobs, f)
 
-    # Initialize dataframe
+    # Initialize dataframe and csv file
     data_df = pd.DataFrame()
     csv_file = setup_csv_file(OUT_DIR, 'data.csv')
 
-    for job in jobs:
-        job_id = job['job_id']
-        print(f'running job {job_id+1} of {len(jobs)} (job_id={job_id})')
-        data_df = run_job(job, OUT_DIR, data_df, csv_file)
-        print(f'finished job {job_id+1} of {len(jobs)} (job_id={job_id})')
+    for model_type in ['nnet', 'pytorch']:
+        # Initialize TinyTaxiNet ('nnet' or 'pytorch')
+        tinytaxinet = initialize_ttn_model(model_type=model_type)
+        print(f'initialized {model_type} TinyTaxiNet')
+
+        # Run jobs
+        for job in jobs:
+            job_id = job['job_id']
+            print(f'running job {job_id+1} of {len(jobs)} (job_id={job_id})')
+            data_df = run_job(
+                job_params=job,
+                model=tinytaxinet,
+                model_type=model_type,
+                out_dir=OUT_DIR,
+                data_df=data_df,
+                csv_file=csv_file
+            )
+            print(f'finished job {job_id+1} of {len(jobs)} (job_id={job_id})')
 
 if __name__ == "__main__":
     main()
