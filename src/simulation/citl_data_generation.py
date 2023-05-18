@@ -105,6 +105,7 @@ def run_job(
     """
     # Initialize TinyTaxiNet
     tinytaxinet = TinyTaxiNet(NNet(NNET_DIR))
+    dataframe = data_df
 
     with XPlaneConnect() as client:
         # Set weather and time of day
@@ -174,7 +175,7 @@ def run_job(
                 absolute_time = client.getDREF("sim/time/zulu_time_sec")[0]
                 
                 # Record data
-                record_data(
+                dataframe = record_data(
                     img_name=img_name.split('/')[-1].split('.')[0],
                     img=img,
                     ttn_input_img=ttn_input_img,
@@ -192,7 +193,7 @@ def run_job(
                     cloud_cover=job_params['cloud_cover'],
                     episode_num=job_params['job_id'],
                     step_num=current_step,
-                    dataframe=data_df,
+                    dataframe=dataframe,
                     csv_file=csv_file
                 )
                 save_state_append(client, str(out_dir), 'extra_params.csv')
@@ -220,6 +221,8 @@ def run_job(
                     current_step += 1
 
         client.pauseSim(True)
+    
+    return dataframe
 
 
 def setup_csv_file(out_dir: Path, csv_filename: str):
@@ -237,7 +240,7 @@ def setup_csv_file(out_dir: Path, csv_filename: str):
     with open(csv_file_path, 'w') as csv_file:
         csv_file.write('image_filename,absolute_time_GMT_seconds,relative_time_seconds,distance_to_centerline_meters,')
         csv_file.write('distance_to_centerline_NORMALIZED,downtrack_position_meters,downtrack_position_NORMALIZED,')
-        csv_file.write('heading_error_degrees,heading_error_NORMALIZED,period_of_day,cloud_type,episode_num,current_step,\n')
+        csv_file.write('heading_error_degrees,heading_error_NORMALIZED,period_of_day,cloud_type,episode_num,step_num,\n')
 
 
     return csv_file_path
@@ -285,23 +288,25 @@ def record_data(
         'period_of_day': [period_of_day],
         'cloud_type': [cloud_cover],
         'episode_num': [episode_num],
-        'current_step': [step_num]
+        'step_num': [step_num]
     }
 
     if dataframe is None:
-        dataframe = pd.DataFrame(data, index=[0])
+        df = pd.DataFrame(data, index=[0])
     else:
-        dataframe = dataframe.reset_index(drop=True)  # Reset index of the existing dataframe
-        dataframe = pd.concat([dataframe, pd.DataFrame(data, index=[0])], ignore_index=True)
+        df = dataframe.reset_index(drop=True)  # Reset index of the existing dataframe
+        df = pd.concat([df, pd.DataFrame(data, index=[0])], ignore_index=True)
 
     if csv_file is not None:
-        dataframe.to_csv(csv_file, mode='a', index=False, index_label=False, header=not os.path.exists(csv_file))
+        df.to_csv(csv_file, mode='a', index=False, index_label=False, header=not os.path.exists(csv_file))
 
     if save_file:
         # Save dataframe
-        dataframe = dataframe.reset_index(drop=True)  # Reset index of the existing dataframe
-        dataframe_path = csv_file.parent.joinpath('data_df.pkl')
-        dataframe.to_pickle(dataframe_path)
+        df = df.reset_index(drop=True)  # Reset index of the existing dataframe
+        df_path = csv_file.parent.joinpath('data_df.pkl')
+        df.to_pickle(df_path)
+
+    return df
 
 def save_screenshot(
         time_period: str,
@@ -344,19 +349,20 @@ def main():
         time_of_day_range=(0.0, 24.0),
         cloud_cover_range=(0, 4),
         end_DTP_perc=0.05,
-        max_jobs=3
+        max_jobs=2
     )
 
     print(f'generated jobs: {jobs}')
 
+    # Initialize dataframe
     data_df = pd.DataFrame()
     csv_file = setup_csv_file(OUT_DIR, 'data.csv')
 
     for job in jobs:
         job_id = job['job_id']
-        print(f'running job {job_id} of {len(jobs)}')
-        run_job(job, OUT_DIR, data_df, csv_file)
-        print(f'finished job {job_id} of {len(jobs)}')
+        print(f'running job {job_id+1} of {len(jobs)} (job_id={job_id})')
+        data_df = run_job(job, OUT_DIR, data_df, csv_file)
+        print(f'finished job {job_id+1} of {len(jobs)} (job_id={job_id})')
 
 if __name__ == "__main__":
     main()
