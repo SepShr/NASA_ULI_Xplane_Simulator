@@ -1,38 +1,39 @@
 # NASA ULI Xplane Simulator
-Dataset and Simulator for the NASA ULI Project
+This repository contains the instructions and code for setting up the NASA ULI Xplane Simulator to generate data using controller and DNN (i.e., system)-in-the-loop simulation for the paper titled "System Safety Monitoring of Learned Components Using Temporal Metric Forecasting", by Sepehr Sharifi, Andrea Stocco, and Lionel C. Briand.
 
-# Download Links, Citation, and Stanford Persistent URL
-Please see [here](https://purl.stanford.edu/zz143mb4347) for a citation and links to GBs of data, which you should download and place in `NASA_DATA_DIR` as specified below.
+This work is done at [Nanda Lab](https://www.nanda-lab.ca/), EECS Department, University of Ottawa, Canada.
 
-For more information on the data, check out [this document](docs/NASA_ULI_dataset_format.pdf).
+This project is modified fork of the [NASA ULI Project](https://github.com/StanfordASL/NASA_ULI_Xplane_Simulator). We are thankful to the authors for their work.
+
+(NOTE: if you do not have a proper markdown viewer, you can use [this online viewer](https://dillinger.io))
 
 # System Requirements
 First, export a system (bash) variable corresponding to where you have cloned this repo named `NASA_ULI_ROOT_DIR`. For example, in your bashrc:
 
 `export NASA_ULI_ROOT_DIR={path to this directory on your machine}`
 
-Second, export a system (bash) variable corresponding to where you have downloaded data named `NASA_DATA_DIR`. For example, in your bashrc:
-
-`export NASA_DATA_DIR='path to where data is downloaded}`
-
-This code was tested using Python 3.6.12. In general, any version of Python 3 should work.
+This code was tested using Python 3.9. In general, any version of Python 3 should work.
 See src/requirements.txt for specific packages.
 
 # Quick Links
-* [X-Plane 11 Set Up Instructions](src/)
-* [Data Generation Instructions](src/data_generation)
-* [Controller Simulation Instructions](src/simulation)
+* [X-Plane 11 Set Up Instructions](src/README.md)
+* [Simulation Instructions](src/simulation/README.md)
 
 # Repository Structure
 - `src`
     - Has the main code. See `src/examples` for a tutorial.
 
-- `docs`
-    - Detailed specification and documentation.
-
-- `data`
-    - Images and corresponding state information from XPlane. 
-    - This is only a subset of data for testing, the rest should be under `NASA_DATA_DIR`.
-
 - `scratch`
     - Create this folder on your machine, where results will be saved. Do not check this into the main GIT repository to keep it compact.
+
+- `models`
+    - has a Tiny TaxiNet model that takes in a flattened 8 x 16 image
+    - predicts two scalars
+        - estimate of the crosstrack error (meters)
+        - heading error (degrees) 
+        - these are un-normalized outputs
+    - see the code in `simulation` for controller-in-the-loop training
+
+- `pretrained_DNN`
+    - has ResNet-18 with 2 final linear regression outputs pre-trained on morning condition data
+    - was trained used the scripts in `train_DNN`

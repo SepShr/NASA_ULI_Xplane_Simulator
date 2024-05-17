@@ -19,14 +19,15 @@ DUBINS = False
 # 'fully_observable' - true state is known
 # 'tiny_taxinet'     - state is estimated using the tiny taxinet neural network from
 #                      image observations of the true state
-STATE_ESTIMATOR = 'fully_observable'
+# STATE_ESTIMATOR = 'fully_observable'
+STATE_ESTIMATOR = 'tiny_taxinet'
 
 # Time of day in local time, e.g. 8.0 = 8AM, 17.0 = 5PM
-TIME_OF_DAY = 8.0
+TIME_OF_DAY = 7.0
 
 # Cloud cover (higher numbers are cloudier/darker)
 # 0 = Clear, 1 = Cirrus, 2 = Scattered, 3 = Broken, 4 = Overcast
-CLOUD_COVER = 0
+CLOUD_COVER = 3
 
 # Starting crosstrack error in meters
 START_CTE = 6.0

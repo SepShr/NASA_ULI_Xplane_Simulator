@@ -1,6 +1,7 @@
 """
 Generate and record data using CITL simulations.
 """
+import gc
 import os
 import pickle
 import sys
@@ -23,7 +24,6 @@ from mss import mss
 from nnet import NNet
 from pyDOE import lhs
 from TinyTaxiNet import TinyTaxiNet
-from TinyTaxiNetTorch import TinyTaxiNetTorch
 from tqdm import tqdm
 
 from xpc3 import XPlaneConnect
@@ -50,10 +50,10 @@ CLOUD_COVER_MAP = {
 }
 
 RUNWAY_END_DTP_VALUE = 2982.0
-
-START_DTP = 0.0
+START_DTP = RUNWAY_END_DTP_VALUE * 0.05
 CTE_LIMIT = 15
 HE_LIMIT = 90
+NUM_SECTIONS = 4
 
 MSS = mss()
 
@@ -138,7 +138,7 @@ def run_job(
         step_end_time = step_start_time
         _, dtp, _ = getHomeState(client)
         current_step = 0  # current step in simulation
-
+        dtp_range = job_params['end_DTP'] - START_DTP
         with tqdm(total=job_params['end_DTP']) as pbar:
             while dtp < job_params['end_DTP']:
                 # Set proper throttle value based on speed
@@ -183,6 +183,14 @@ def run_job(
                 cte_act, dtp, he_act = getHomeState(client)
                 absolute_time = client.getDREF("sim/time/zulu_time_sec")[0]
                 
+                # Calculate section based on dtp
+                # The number of sections is 4
+                # 0: 0 - 25% of dtp_range
+                # 1: 25% - 50% of dtp_range
+                # 2: 50% - 75% of dtp_range
+                # 3: 75% - 100% of dtp_range
+                dtp_section = int((dtp - START_DTP) / (dtp_range / 4))
+
                 # Record data
                 dataframe = record_data(
                     img_name=img_name.split('/')[-1].split('.')[0],
@@ -202,8 +210,10 @@ def run_job(
                     cloud_cover=job_params['cloud_cover'],
                     episode_num=job_params['job_id'],
                     step_num=current_step,
+                    section_num=dtp_section,
                     model_type=model_type,
                     dataframe=dataframe,
+                    out_dir=out_dir,
                     csv_file=csv_file
                 )
                 save_state_append(client, str(out_dir), 'extra_params.csv')
@@ -219,9 +229,12 @@ def run_job(
                 _, dtp, _ = getHomeState(client)
 
                 # Update progress bar
-                # pbar.n = dtp
-                # pbar.refresh()
-                pbar.update(dtp - pbar.n)
+                delta_dtp = dtp - pbar.n
+                pbar.update(delta_dtp)
+
+                # Stop simulation if dtp is not changing
+                if delta_dtp < 0.01:
+                    break
                 
                 time.sleep(0.001)
 
@@ -275,10 +288,13 @@ def record_data(
         cloud_cover: int,
         episode_num: int,
         step_num: int,
+        section_num: int,
         model_type: str,
         dataframe: pd.DataFrame = None,
+        out_dir: Path = None,
         csv_file: Path = None,
-        save_file: bool = True
+        # save_file: bool = True
+        save_file: bool = False
 ):
     """
     Record CITL data.
@@ -301,6 +317,7 @@ def record_data(
         'cloud_type': [cloud_cover],
         'episode_num': [episode_num],
         'step_num': [step_num],
+        'section_num': [section_num],
         'model_type': [model_type]
     }
 
@@ -316,10 +333,28 @@ def record_data(
     if save_file:
         # Save dataframe
         df = df.reset_index(drop=True)  # Reset index of the existing dataframe
-        df_path = csv_file.parent.joinpath('data_df.pkl')
+        df_path = out_dir.joinpath('data_df.pkl')
         df.to_pickle(df_path)
 
     return df
+
+
+def save_df(
+        dataframe: pd.DataFrame,
+        out_dir: Path,
+        df_suffix: str = '',
+        save_file: bool = True
+):
+    """
+    Save dataframe.
+    """
+    if save_file:
+        # Save dataframe
+        df = dataframe.reset_index(drop=True)  # Reset index of the existing dataframe
+        df_path = out_dir.joinpath(f'data_df_{df_suffix}.pkl')
+        df.to_pickle(df_path)
+
+    # return df
 
 def save_screenshot(
         time_period: str,
@@ -328,7 +363,7 @@ def save_screenshot(
         step_num: int,
         out_dir: str,
         monitor: dict = MONITOR,
-        save_file: bool = True
+        save_file: bool = False
 ):
     """
     Save screenshot of current X-Plane window.
@@ -355,12 +390,8 @@ def initialize_ttn_model(model_type : str = 'nnet'):
     if model_type == 'nnet':
         # NNet TinyTaxiNet
         tinytaxinet = TinyTaxiNet(NNet(NNET_DIR))
-    elif model_type == 'pytorch':
-        # PyTorch TinyTaxiNet
-        model_path = Path().cwd().joinpath('models', 'tiny_taxinet_pytorch', 'afternoon_morning_overcast_night', 'best_model.pt')
-        tinytaxinet = TinyTaxiNetTorch(model_path)
     else:
-        raise ValueError('tinytaxinet_model_type must be either "nnet" or "pytorch"')
+        raise ValueError('tinytaxinet_model_type must be "nnet"')
     
     return tinytaxinet
 
@@ -373,34 +404,46 @@ def main():
     os.makedirs(OUT_DIR, exist_ok=True)
     sys.path.append(str(OUT_DIR))
 
+    # ====================Generate jobs==========================
     jobs = generate_jobs(
-        # start_CTE_range=(-8, 8),
         start_CTE_range=(-3, 3),
         start_HE_range=(-10, 10),
         time_of_day_range=(0.0, 24.0),
         cloud_cover_range=(0, 4),
-        end_DTP_perc=0.5,
-        max_jobs=2
+        end_DTP_perc=0.45,
+        max_jobs=1000  # the number of jobs to generate (adjust as needed)
     )
 
-    print(f'generated jobs: {jobs}')
     # Pickle jobs
     with open(OUT_DIR.joinpath('jobs.pkl'), 'wb') as f:
         pickle.dump(jobs, f)
 
-    # Initialize dataframe and csv file
-    data_df = pd.DataFrame()
-    csv_file = setup_csv_file(OUT_DIR, 'data.csv')
+    # NOTE: Comment out the above code and uncomment the below code to load jobs from a file
+    # # ====================Load jobs==========================
+    # # Load already generated jobs from the files
+    # jobs_path = Path(NASA_ULI_ROOT_DIR).joinpath('generated_jobs').joinpath('jobs_p1.pkl')
+    # with open(jobs_path, 'rb') as f:
+    #     jobs = pickle.load(f)
+    
+    # print(f'loaded jobs: {jobs}')
 
-    for model_type in ['nnet', 'pytorch']:
-        # Initialize TinyTaxiNet ('nnet' or 'pytorch')
+    # ====================Run jobs==========================
+
+    # Initialize csv file or keep it None
+    # csv_file = setup_csv_file(OUT_DIR, 'data.csv')
+    csv_file = None
+
+    for model_type in ['nnet']:
+        # Initialize TinyTaxiNet ('nnet')
         tinytaxinet = initialize_ttn_model(model_type=model_type)
         print(f'initialized {model_type} TinyTaxiNet')
-
+    
         # Run jobs
-        for job in jobs:
+        for job_counter, job in enumerate(jobs):
+            data_df = pd.DataFrame()
+
             job_id = job['job_id']
-            print(f'running job {job_id+1} of {len(jobs)} (job_id={job_id})')
+            print(f'running job {job_counter+1} of {len(jobs)} (job_id={job_id})')
             data_df = run_job(
                 job_params=job,
                 model=tinytaxinet,
@@ -409,7 +452,11 @@ def main():
                 data_df=data_df,
                 csv_file=csv_file
             )
-            print(f'finished job {job_id+1} of {len(jobs)} (job_id={job_id})')
+            print(f'finished job {job_counter+1} of {len(jobs)} (job_id={job_id})')
+
+            save_df(data_df, OUT_DIR, df_suffix=f'{model_type}_job_{job_id}')
+            del data_df
+            gc.collect()
 
 if __name__ == "__main__":
     main()
