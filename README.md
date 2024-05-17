@@ -1,5 +1,5 @@
 # NASA ULI Xplane Simulator
-This repository contains the instructions and code for setting up the NASA ULI Xplane Simulator to generate data using controller and DNN (i.e., system)-in-the-loop simulation for the paper titled "System Safety Monitoring of Learned Components Using Temporal Metric Forecasting", by Sepehr Sharifi, Andrea Stocco, and Lionel C. Briand.
+This repository contains the instructions and code for setting up the NASA ULI Xplane Simulator to generate data using controller and DNN (i.e., system)-in-the-loop simulation for the paper titled *"System Safety Monitoring of Learned Components Using Temporal Metric Forecasting"*, by Sepehr Sharifi, Andrea Stocco, and Lionel C. Briand.
 
 This work is done at [Nanda Lab](https://www.nanda-lab.ca/), EECS Department, University of Ottawa, Canada.
 
@@ -21,13 +21,13 @@ See src/requirements.txt for specific packages.
 
 # Repository Structure
 - `src`
-    - Has the main code. See `src/examples` for a tutorial.
+    - Contains the main code. See `src/examples` for a tutorial.
 
 - `scratch`
     - Create this folder on your machine, where results will be saved. Do not check this into the main GIT repository to keep it compact.
 
 - `models`
-    - has a Tiny TaxiNet model that takes in a flattened 8 x 16 image
+    - Contains a Tiny TaxiNet model that takes in a flattened 8 x 16 image
     - predicts two scalars
         - estimate of the crosstrack error (meters)
         - heading error (degrees) 
@@ -35,5 +35,8 @@ See src/requirements.txt for specific packages.
     - see the code in `simulation` for controller-in-the-loop training
 
 - `pretrained_DNN`
-    - has ResNet-18 with 2 final linear regression outputs pre-trained on morning condition data
+    - Contains ResNet-18 with 2 final linear regression outputs pre-trained on morning condition data
     - was trained used the scripts in `train_DNN`
+
+- `generated_jobs`
+    - Contains the previously generated jobs for the paper
