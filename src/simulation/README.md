@@ -44,6 +44,7 @@ Alternatively, you can run the previously generated simulation jobs by commentin
 2. Open a terminal and navigate to `NASA_ULI_Xplane_Simulator/src/simulation`.
 
 3. In the terminal first create a virtual environment, install the requirements and run the data generation code by running the following commands:
+
 ```bash
  # For Linux-based systems
 #  For Windows-based systems use python instead of python3
@@ -56,4 +57,4 @@ Alternatively, you can run the previously generated simulation jobs by commentin
  python citl_data_generation.py
 ```
 
-1. Quickly minimize the terminal (if using the image-based controller) so that it does not get in the way of the screenshots. There should be a five second buffer since starting the `citl_data_generation.py` script.
+4. Quickly minimize the terminal (if using the image-based controller) so that it does not get in the way of the screenshots. There should be a five second buffer since starting the `citl_data_generation.py` script.
